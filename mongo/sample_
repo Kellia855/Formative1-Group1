@@ -1,0 +1,50 @@
+[
+  {
+    "timestamp": {
+      "$date": "2019-01-01T00:00:00Z"
+    },
+    "consumption": 6352,
+    "production": 6527,
+    "generation": {
+      "nuclear": 1395,
+      "wind": 79,
+      "hydroelectric": 1383,
+      "oil_and_gas": 1896,
+      "coal": 1744,
+      "solar": 0,
+      "biomass": 30
+    }
+  },
+  {
+    "timestamp": {
+      "$date": "2019-01-01T01:00:00Z"
+    },
+    "consumption": 6116,
+    "production": 5701,
+    "generation": {
+      "nuclear": 1393,
+      "wind": 96,
+      "hydroelectric": 1112,
+      "oil_and_gas": 1429,
+      "coal": 1641,
+      "solar": 0,
+      "biomass": 30
+    }
+  },
+  {
+    "timestamp": {
+      "$date": "2019-01-01T02:00:00Z"
+    },
+    "consumption": 5873,
+    "production": 5676,
+    "generation": {
+      "nuclear": 1393,
+      "wind": 142,
+      "hydroelectric": 1030,
+      "oil_and_gas": 1465,
+      "coal": 1616,
+      "solar": 0,
+      "biomass": 30
+    }
+  }
+]
