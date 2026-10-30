@@ -46,80 +46,58 @@ _CANON.update({"timestamp": TIME_COL, "date": TIME_COL, "time": TIME_COL})
 # ------------------------------------------------------------ data loading
 def normalise_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Map API/CSV column names onto the names used during training."""
+
+    df = df.copy()
+
+    # Expand nested generation values returned by the SQL/Mongo API
+    if "generation" in df.columns:
+        generation = pd.json_normalize(df["generation"].tolist())
+        generation.index = df.index
+        df = pd.concat(
+            [df.drop(columns=["generation"]), generation],
+            axis=1
+        )
+
+    # Normalize column names
     renames = {}
+
     for col in df.columns:
         key = re.sub(r"[^a-z0-9]", "", str(col).lower())
+
         if key in _CANON:
             renames[col] = _CANON[key]
+
     df = df.rename(columns=renames)
 
+    # Check that all required columns exist
     missing = [c for c in DATA_COLUMNS if c not in df.columns]
-    if missing:
-        raise ValueError(f"Data is missing required columns: {missing}")
 
-    df = df[DATA_COLUMNS].copy()          # drops ids such as _id / id
-    df[TIME_COL] = pd.to_datetime(df[TIME_COL], errors="coerce")
-    if df[TIME_COL].dt.tz is not None:    # keep wall-clock time, as in training
+    if missing:
+        raise ValueError(
+            f"Data is missing required columns: {missing}"
+        )
+
+    # Keep only the columns used during training
+    df = df[DATA_COLUMNS].copy()
+
+    # Convert timestamps
+    df[TIME_COL] = pd.to_datetime(
+        df[TIME_COL],
+        errors="coerce"
+    )
+
+    if df[TIME_COL].dt.tz is not None:
         df[TIME_COL] = df[TIME_COL].dt.tz_localize(None)
+
+    # Convert numerical columns
     for col in DATA_COLUMNS:
         if col != TIME_COL:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+            df[col] = pd.to_numeric(
+                df[col],
+                errors="coerce"
+            )
+
     return df
-
-
-def _records(payload) -> list:
-    """Pull a list of record dicts out of a typical JSON API response."""
-    if isinstance(payload, list):
-        return payload
-    if isinstance(payload, dict):
-        for key in ("data", "records", "results", "items"):
-            if isinstance(payload.get(key), list):
-                return payload[key]
-        return [payload]                  # a single record
-    raise ValueError("Unexpected API response format.")
-
-
-def _get(url: str, params: dict | None = None):
-    try:
-        resp = requests.get(url, params=params, timeout=30)
-        resp.raise_for_status()
-        return resp.json()
-    except requests.RequestException as exc:
-        raise RuntimeError(f"API request failed ({url}): {exc}") from exc
-
-
-def fetch_history_from_api(api_url: str, source: str, as_of=None) -> pd.DataFrame:
-    """Latest-record endpoint -> end time; date-range endpoint -> history window."""
-    base = api_url.rstrip("/")
-    if as_of is None:
-        latest = normalise_columns(pd.DataFrame(_records(_get(base + LATEST_PATH.format(source=source)))))
-        end = latest[TIME_COL].max()
-    else:
-        end = pd.Timestamp(as_of)
-    start = end - pd.Timedelta(hours=HISTORY_HOURS)
-
-    payload = _get(base + RANGE_PATH.format(source=source),
-                   params={START_PARAM: start.isoformat(), END_PARAM: end.isoformat()})
-    records = _records(payload)
-    if not records:
-        raise RuntimeError(f"The API returned no records between {start} and {end}.")
-    return normalise_columns(pd.DataFrame(records))
-
-
-def fetch_history_from_csv(path: Path, as_of=None):
-    """Offline alternative: slice the same window out of the CSV.
-    Returns (history, actual_next_value_or_None)."""
-    df = normalise_columns(pd.read_csv(path))
-    df = df.dropna(subset=[TIME_COL]).sort_values(TIME_COL)
-    end = pd.Timestamp(as_of) if as_of else df[TIME_COL].max()
-    start = end - pd.Timedelta(hours=HISTORY_HOURS)
-    history = df[(df[TIME_COL] >= start) & (df[TIME_COL] <= end)]
-
-    actual_rows = df[df[TIME_COL] == end + pd.Timedelta(hours=1)]
-    actual = float(actual_rows[TARGET].mean()) if len(actual_rows) else None
-    return history, actual
-
-
 # -------------------------------------------------------------- forecasting
 def load_model(path: Path) -> dict:
     if not path.exists():
