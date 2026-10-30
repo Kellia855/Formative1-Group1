@@ -1,6 +1,6 @@
 # Electricity Time-Series Data Pipeline
 
-This formative project explores hourly electricity consumption and production, prepares the data for analysis, stores it in both MySQL and MongoDB, and exposes the stored records through a FastAPI service.
+This formative project explores hourly electricity consumption and production, prepares the data for analysis, stores it in both MySQL and MongoDB, and exposes the stored records through a FastAPI service. It also includes a shared preprocessing pipeline and a one-hour-ahead consumption forecaster.
 
 The dataset covers **2019-01-01 through 2024-03-31**. `Consumption` is the proposed forecasting target. The CSV contains a timestamp, total consumption and production, and generation readings for seven sources.
 
@@ -9,14 +9,19 @@ The dataset covers **2019-01-01 through 2024-03-31**. `Consumption` is the propo
 | Path | Purpose |
 | --- | --- |
 | `Formative1_TimeSeries_Electricity_Data_Exploration_Preprocessing.ipynb` | Dataset exploration, data-quality checks, analysis, visualizations, and time-series feature engineering. The notebook is written for Google Colab and reads the dataset from Google Drive. |
-| `sql/Electricity.csv` | Hourly electricity dataset used by the loaders. |
+| `sql/Electricity.csv` | Hourly electricity dataset used by the database loaders. |
+| `data/Electricity.csv` | CSV used for offline forecasts and back-tests. |
 | `sql/schema.sql` | Creates the MySQL database, normalized tables, source lookup data, and a wide view. |
 | `sql/load_data.py` | Cleans and loads the CSV into MySQL. |
 | `sql/queries.sql` | Example analytical SQL queries. |
 | `mongo/load_mongo.py` | Cleans and loads the CSV into MongoDB. |
 | `mongo/queries_mongo.js` | Equivalent example aggregations and queries for MongoDB. |
 | `api/` | FastAPI application with corresponding MySQL and MongoDB record endpoints. |
-| `requirements.txt` | Python dependencies for the loaders and API. |
+| `src/preprocessing.py` | Shared data cleaning and feature-generation pipeline used for training and serving forecasts. |
+| `predict_forecast.py` | Fetches history from the API or a CSV and predicts the next hour's consumption. |
+| `models/best_model.joblib` | Trained model bundle used by the forecaster. |
+| `tests/test_pipeline_parity.py` | Checks that serving-time features match the training pipeline. |
+| `requirements.txt` | Python dependencies for the loaders and API; see below for optional forecasting and test dependencies. |
 
 ## Data model
 
@@ -29,7 +34,7 @@ Both loaders remove exact duplicate rows and repeated timestamps (keeping the fi
 
 ## Requirements
 
-- Python 3.9 or later
+- Python 3.10 or later
 - MySQL 8 or later, if using the SQL database or SQL API routes
 - MongoDB, if using the document database or MongoDB API routes
 
@@ -49,6 +54,12 @@ On Windows PowerShell, activate it with:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
+```
+
+The base requirements cover the loaders and API. To run the forecaster or tests, install their additional dependencies:
+
+```bash
+python -m pip install requests joblib scikit-learn pytest
 ```
 
 ## Set up MySQL
@@ -162,6 +173,43 @@ Records use this JSON shape; all seven generation values are required when creat
 ```
 
 The MySQL API returns an integer record ID; MongoDB returns a string ObjectId. Timestamp values are stored as naive UTC datetimes.
+
+## Forecast next-hour consumption
+
+The forecaster uses the shared cleaning and feature pipeline in `src/preprocessing.py` and the model bundle in `models/best_model.joblib`. It predicts one hour after the latest available record (or after the timestamp supplied with `--as-of`). At least 168 hours of usable history are needed; the script looks back 192 hours to allow for gaps. This is a one-hour-ahead forecast, not a long-range forecast.
+
+For an offline forecast using the included CSV:
+
+```bash
+python predict_forecast.py --csv data/Electricity.csv
+```
+
+For an offline back-test at a specific time, the command also reports the actual next-hour value when it exists in the CSV:
+
+```bash
+python predict_forecast.py --csv data/Electricity.csv --as-of "2024-03-31 22:00"
+```
+
+To forecast using data served by the API, start the API and use one of its database backends:
+
+```bash
+python predict_forecast.py --api http://localhost:8000 --source sql
+python predict_forecast.py --api http://localhost:8000 --source mongo
+```
+
+The forecast script's `RANGE_PATH` setting must match the API's date-range route. In this repository, set it to `"/{source}/records/range"` (the API routes are documented above); the script currently defaults to the collection-list route, which does not apply the requested `start` and `end` parameters. The API can also be pointed at another model bundle with `--model path/to/model.joblib`.
+
+The notebook trains and saves a model bundle containing the estimator and its expected feature-column order. When retraining, put the resulting `best_model.joblib` in `models/` or pass its path with `--model`. The predictor uses the stored feature order to keep training and inference inputs aligned.
+
+## Run tests
+
+From the repository root, run the focused training/serving parity tests:
+
+```bash
+python -m pytest tests/
+```
+
+These tests verify that next-hour features generated from a recent history window match the training pipeline and that insufficient history is rejected.
 
 ## Notebook
 
