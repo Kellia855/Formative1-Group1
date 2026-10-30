@@ -35,7 +35,7 @@ from src.preprocessing import (DATA_COLUMNS, TARGET, TIME_COL,
 DEFAULT_MODEL = Path("models/best_model.joblib")
 HISTORY_HOURS = 192                      # 168 h needed + a small buffer for gaps
 LATEST_PATH = "/{source}/records/latest"
-RANGE_PATH = "/{source}/records"         # called with ?start=...&end=...
+RANGE_PATH = "/{source}/records/range"    # called with ?start=...&end=...
 START_PARAM, END_PARAM = "start", "end"
 
 # Accept "oil_and_gas", "Oil and Gas", "oilAndGas", "timestamp" ... from the API
